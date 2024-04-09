@@ -60,9 +60,11 @@ def main():
         if msg.startswith("/join "):
             channel = msg.split(" ", 1)[1]
             send_message(sock, "join_channel", channel=channel)
+        elif msg.startswith("/list"):
+            send_message(sock, "list_channels")
         elif msg.startswith("@"):
             recipient, message = msg[1:].split(" ", 1)
-            send_message(sock, "private_message", message=message, recipient=recipient)
+            send_message(sock, "send_private_message", recipient=recipient, message=message)
         else:
             # 默认情况下，发送到当前频道
             send_message(sock, "send_message", message=msg)
