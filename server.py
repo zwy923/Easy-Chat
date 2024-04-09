@@ -8,8 +8,8 @@ class ChatServer:
     def __init__(self, host, port):
         self.host = host
         self.port = port
-        self.clients = {}  # 客户端socket与客户信息的映射
-        self.channels = {"public": set()}  # 初始化包含默认频道public
+        self.clients = {}
+        self.channels = {"public": set()}
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
@@ -60,10 +60,9 @@ class ChatServer:
         elif action == "send_private_message":
             self.send_private_message(client_socket, message_data["recipient"], message_data["message"])
         elif action == "list_channels":
-            self.list_channels(client_socket)  # 新增处理列出所有频道的请求
+            self.list_channels(client_socket)
 
     def join_channel(self, client_socket, channel_name):
-        # 确保用户离开当前频道
         if self.clients[client_socket]["channel"] in self.channels:
             self.channels[self.clients[client_socket]["channel"]].remove(client_socket)
         if channel_name not in self.channels:
@@ -83,7 +82,6 @@ class ChatServer:
                     log_error(f"Failed to send message to {self.clients[client_socket]['address']}: {e}")
                     
     def send_private_message(self, sender_socket, recipient_nickname, message):
-        """发送私人消息给指定的接收者。"""
         sender_nickname = self.clients[sender_socket]["nickname"]
         recipient_socket = None
         for client, info in self.clients.items():
@@ -92,7 +90,6 @@ class ChatServer:
                 break
 
         if recipient_socket:
-            # 在消息前加上"Private from [sender_nickname]:"以标识这是一条私信
             formatted_message = f"Private from {sender_nickname}: {message}"
             try:
                 recipient_socket.sendall(formatted_message.encode())

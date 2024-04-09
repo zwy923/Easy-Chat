@@ -19,13 +19,12 @@ def send_message(sock, action, **kwargs):
     sock.sendall(message.encode())
 
 def connect_to_server(host, port):
-    """尝试连接到服务器，并处理超时和连接错误。"""
+    """try to connnect the server"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(5)  # 设置超时时间为5秒
-
+    sock.settimeout(5) 
     try:
         sock.connect((host, port))
-        sock.settimeout(None)  # n连接成功后移除超时限制
+        sock.settimeout(None)  # connection failure
         return sock
     except socket.timeout:
         log_error("Connection timed out")
@@ -41,18 +40,17 @@ def main():
     while True:
         sock = connect_to_server(host, port)
         if sock:
-            break  # 成功连接到服务器，跳出循环
-
+            break  # Successful connection
         retry = input("Failed to connect to the server. Would you like to retry? (y/n): ")
         if retry.lower() != 'y':
-            return  # 如果用户不想重试，则退出程序
+            return
 
     nickname = input("Choose a nickname: ")
     send_message(sock, "set_nickname", nickname=nickname)
 
     threading.Thread(target=receive_messages, args=(sock,), daemon=True).start()
 
-    print("Welcome to the chat! Type '/join [channel]' to join a channel.")
+    print("Welcome to the chat! Type '/join [channel]' to join a channel, '/list' to list all of channels")
     while True:
         msg = input()
         if msg == "exit":
@@ -66,7 +64,6 @@ def main():
             recipient, message = msg[1:].split(" ", 1)
             send_message(sock, "send_private_message", recipient=recipient, message=message)
         else:
-            # 默认情况下，发送到当前频道
             send_message(sock, "send_message", message=msg)
 
     sock.close()
