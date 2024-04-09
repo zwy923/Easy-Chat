@@ -1,0 +1,8 @@
+
+# server
+SERVER_HOST = '0.0.0.0'
+SERVER_PORT = 12345
+
+# client
+SERVER_IP = '127.0.0.1'  
+CLIENT_PORT = 12345
