@@ -1,8 +1,8 @@
 import socket
 import threading
 import json
-from config import SERVER_HOST, SERVER_PORT
-from utils import log_message, log_error, format_message
+from python.config import SERVER_HOST, SERVER_PORT
+from python.utils import log_message, log_error, format_message
 
 class ChatServer:
     def __init__(self, host, port):

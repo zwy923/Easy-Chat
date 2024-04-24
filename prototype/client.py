@@ -1,8 +1,8 @@
 import socket
 import threading
 import json
-from config import SERVER_IP, CLIENT_PORT
-from utils import log_message, log_error
+from python.config import SERVER_IP, CLIENT_PORT
+from python.utils import log_message, log_error
 
 def receive_messages(sock):
     while True:
