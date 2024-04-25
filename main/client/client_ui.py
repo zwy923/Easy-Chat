@@ -48,7 +48,7 @@ def login():
         console.print("[bold green]Login successful![/bold green]")
         data = response.json()
         username = login_username
-        token = data['token']  # 存储JWT令牌
+        token = data['token']
     else:
         console.print("[bold red]Failed to login.[/bold red]")
 
@@ -59,7 +59,7 @@ def create_room():
         return
     console.print("\n[bold green]Create a new chat room[/bold green]")
     new_room_name = Prompt.ask("Enter room name")
-    headers = {'Authorization': f'Bearer {token}'}  # 在请求头中包含JWT令牌
+    headers = {'Authorization': f'Bearer {token}'} 
     response = requests.post('http://localhost:5001/create_room', json={'room_name': new_room_name, 'username': username}, headers=headers)
     if response.status_code == 201:
         console.print(response.json())
@@ -75,7 +75,7 @@ def join_room():
         return
     console.print("\n[bold green]Join a chat room[/bold green]")
     join_room_name = Prompt.ask("Enter room name")
-    headers = {'Authorization': f'Bearer {token}'}  # 在请求头中包含JWT令牌
+    headers = {'Authorization': f'Bearer {token}'} 
     response = requests.post('http://localhost:5001/join_room', json={'room_name': join_room_name, 'username': username}, headers=headers)
     if response.status_code == 200:
         console.print(response.json())

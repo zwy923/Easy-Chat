@@ -20,7 +20,7 @@ def get_user_by_username(username):
 
 def authenticate(token):
     if token.startswith("Bearer "):
-        token = token[7:]  # 去掉"Bearer"前缀
+        token = token[7:]
     
     try:
         payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
@@ -106,7 +106,6 @@ def send_to_room():
     if not room:
         return jsonify({'error': 'Room not found'}), 404
 
-    # Assume user must be in the room to send a message
     user = users.find_one({'username': username})
     if ObjectId(user['_id']) not in room['members']:
         return jsonify({'error': 'User is not a member of the room'}), 403
@@ -137,7 +136,6 @@ def get_room_messages():
     if ObjectId(user['_id']) not in room['members']:
         return jsonify({'error': 'User is not a member of the room'}), 403
 
-    # 获取消息列表并转换为可以序列化的格式
     message_list = messages.find({'room_id': room['_id']})
     response_data = []
     for message in message_list:
@@ -175,7 +173,6 @@ def leave_room():
     if ObjectId(user['_id']) not in room['members']:
         return jsonify({'error': 'User is not a member of the room'}), 403
 
-    # Remove user from room's member list
     chatrooms.update_one({'_id': room['_id']}, {'$pull': {'members': ObjectId(user['_id'])}})
     return jsonify({'message': 'Left room successfully'}), 200
 
