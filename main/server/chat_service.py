@@ -1,97 +1,135 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from bson.objectid import ObjectId
 from flask_cors import CORS
+from bson.objectid import ObjectId
+import jwt
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
+app.config['SECRET_KEY'] = 'your-secret-key'
+
 client = MongoClient('localhost', 27017)
-db = client.chat_system
-chatrooms = db.chatrooms  # Chat room collection
-messages = db.messages  # Messages collection
-users = db.users  # Assuming there's a users collection
+db = client.chat_service
+chatrooms = db.chatrooms
+messages = db.messages
+users = db.users
+
+def authenticate(token):
+    try:
+        payload = jwt.decode(token, app.config['SECRET_KEY'])
+        return payload['user_id']
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
 
 @app.route('/create_room', methods=['POST'])
 def create_room():
-    room_name = request.json['room_name']
-    username = request.json.get('username')  # Get the username from request
-    user = users.find_one({'username': username})  # Find the user by username
-    if not user:
-        return jsonify({'error': 'User not found'}), 404
+    token = request.headers.get('Authorization')
+    user_id = authenticate(token)
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     
-    room_id = chatrooms.insert_one({'room_name': room_name, 'members': [user['_id']]}).inserted_id
-    return jsonify({'message': 'Room created successfully', 'room_id': str(room_id)}), 201
+    room_name = request.json['room_name']
+    room_type = request.json.get('room_type', 'public')
+    
+    if room_type not in ['public', 'private']:
+        return jsonify({'error': 'Invalid room type'}), 400
+    
+    room_id = chatrooms.insert_one({'room_name': room_name, 'room_type': room_type, 'members': [ObjectId(user_id)]}).inserted_id
+    return jsonify({'room_id': str(room_id)}), 201
 
 @app.route('/join_room', methods=['POST'])
 def join_room():
-    room_name = request.json['room_name']
-    username = request.json['username']
-    room = chatrooms.find_one({'room_name': room_name})  # Find the room by name
-    user = users.find_one({'username': username})  # Find the user by username
-
-    if not room or not user:
-        return jsonify({'error': 'Room or user not found'}), 404
+    token = request.headers.get('Authorization')
+    user_id = authenticate(token)
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
     
-    chatrooms.update_one({'_id': room['_id']}, {'$addToSet': {'members': user['_id']}})
-    return jsonify({'message': 'Joined room successfully'}), 200
-
-@app.route('/send_to_room', methods=['POST'])
-def send_to_room():
-    room_name = request.json['room_name']
-    username = request.json['username']
-    text = request.json['text']
-    room = chatrooms.find_one({'room_name': room_name})
-    user = users.find_one({'username': username})
-
-    if not room or not user:
-        return jsonify({'error': 'Room or user not found'}), 404
+    room_id = request.json['room_id']
+    room = chatrooms.find_one({'_id': ObjectId(room_id)})
     
-    messages.insert_one({'room_id': room['_id'], 'user_id': user['_id'], 'text': text})
-    return jsonify({'message': 'Message sent'}), 200
-
-@app.route('/get_room_messages', methods=['GET'])
-def get_room_messages():
-    room_name = request.args.get('room_name')
-    room = chatrooms.find_one({'room_name': room_name})
-
     if not room:
         return jsonify({'error': 'Room not found'}), 404
+    
+    if room['room_type'] == 'private' and ObjectId(user_id) not in room['members']:
+        return jsonify({'error': 'Not allowed to join private room'}), 403
+    
+    chatrooms.update_one({'_id': ObjectId(room_id)}, {'$addToSet': {'members': ObjectId(user_id)}})
+    return jsonify({'message': 'Joined room successfully'}), 200
 
-    # Start the aggregation pipeline
+@app.route('/send_message', methods=['POST'])
+def send_message():
+    token = request.headers.get('Authorization')
+    user_id = authenticate(token)
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    room_id = request.json['room_id']
+    text = request.json['text']
+    room = chatrooms.find_one({'_id': ObjectId(room_id)})
+    
+    if not room:
+        return jsonify({'error': 'Room not found'}), 404
+    
+    if ObjectId(user_id) not in room['members']:
+        return jsonify({'error': 'Not a member of the room'}), 403
+    
+    messages.insert_one({'room_id': ObjectId(room_id), 'user_id': ObjectId(user_id), 'text': text})
+    return jsonify({'message': 'Message sent'}), 200
+
+@app.route('/get_messages', methods=['GET'])
+def get_messages():
+    token = request.headers.get('Authorization')
+    user_id = authenticate(token)
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    room_id = request.args.get('room_id')
+    room = chatrooms.find_one({'_id': ObjectId(room_id)})
+    
+    if not room:
+        return jsonify({'error': 'Room not found'}), 404
+    
+    if ObjectId(user_id) not in room['members']:
+        return jsonify({'error': 'Not a member of the room'}), 403
+    
     pipeline = [
-        {'$match': {'room_id': room['_id']}},
+        {'$match': {'room_id': ObjectId(room_id)}},
         {'$lookup': {
             'from': 'users',
             'localField': 'user_id',
             'foreignField': '_id',
-            'as': 'user_info'
+            'as': 'user'
         }},
-        {'$unwind': {
-            'path': '$user_info',
-            'preserveNullAndEmptyArrays': True
-        }},
+        {'$unwind': '$user'},
         {'$project': {
+            '_id': 0,
             'text': 1,
-            'username': '$user_info.username',
-            # Ensure all fields are serializable
-        }}
+            'username': '$user.username',
+            'created_at': {'$toDate': '$_id'}
+        }},
+        {'$sort': {'created_at': 1}}
     ]
-    room_messages = messages.aggregate(pipeline)
+    
+    messages_list = list(messages.aggregate(pipeline))
+    return jsonify(messages_list), 200
 
-    # Convert the messages to a list and make sure all ObjectId instances are turned into strings
-    try:
-        room_messages_list = []
-        for message in room_messages:
-            message['_id'] = str(message['_id'])  # Convert ObjectIds to strings
-            if 'user_info' in message:
-                message['user_info']['_id'] = str(message['user_info']['_id'])
-            room_messages_list.append(message)
-
-        return jsonify(room_messages_list), 200
-    except Exception as e:
-        app.logger.error(f"An error occurred: {str(e)}")
-        return jsonify({'error': 'An error occurred while retrieving messages'}), 500
-
+@app.route('/leave_room', methods=['POST'])
+def leave_room():
+    token = request.headers.get('Authorization')
+    user_id = authenticate(token)
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    room_id = request.json['room_id']
+    room = chatrooms.find_one({'_id': ObjectId(room_id)})
+    
+    if not room:
+        return jsonify({'error': 'Room not found'}), 404
+    
+    chatrooms.update_one({'_id': ObjectId(room_id)}, {'$pull': {'members': ObjectId(user_id)}})
+    return jsonify({'message': 'Left room successfully'}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True, threaded=True, port=5001)
+    app.run(port=5001)
