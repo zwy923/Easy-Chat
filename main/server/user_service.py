@@ -1,31 +1,29 @@
+from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask_cors import CORS
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-class UserService:
-    def __init__(self):
-        # 连接到MongoDB数据库
-        self.client = MongoClient('localhost', 27017)
-        self.db = self.client['chat_db']
-        self.users = self.db.users
+client = MongoClient('localhost', 27017)
+db = client.chat_system
+users = db.users
 
-    def register_user(self, username, password):
-        if self.users.find_one({'username': username}):
-            return False  # 用户名已存在
-        hashed_password = generate_password_hash(password)
-        user_data = {
-            'username': username,
-            'password': hashed_password
-        }
-        try:
-            self.users.insert_one(user_data)
-            return True
-        except Exception as e:
-            print(f"Failed to register user: {e}")
-            return False
+@app.route('/register', methods=['POST'])
+def register():
+    username = request.json['username']
+    password = request.json['password']
+    user_id = users.insert_one({'username': username, 'password': password}).inserted_id
+    return jsonify({'user_id': str(user_id), 'username': username}), 201
 
-    def authenticate_user(self, username, password):
-        """ 验证用户登录请求 """
-        user = self.users.find_one({'username': username})
-        if user and check_password_hash(user['password'], password):
-            return True
-        return False
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.json['username']
+    password = request.json['password']
+    user = users.find_one({'username': username, 'password': password})
+    if user:
+        return jsonify({'status': 'success', 'user_id': str(user['_id'])}), 200
+    else:
+        return jsonify({'status': 'failed'}), 401
+
+if __name__ == '__main__':
+    app.run(port=5000)
