@@ -98,7 +98,7 @@ def send_to_room():
     headers = {'Authorization': f'Bearer {token}'}
     response = requests.post('http://localhost:5001/send_to_room', json={'room_name': room_name, 'username': username, 'text': message}, headers=headers)
 
-    if response.status_code == 200:
+    if response.status_code == 201:
         console.print(response.json())
     else:
         console.print(f"[bold red]Failed to send message. Status code: {response.status_code}[/bold red]")
