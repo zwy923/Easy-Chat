@@ -1,79 +1,91 @@
-from client import ChatClient  # 确保已经有了client.py中的ChatClient类
+import socketio
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
-from threading import Thread
 
+sio = socketio.Client()
 console = Console()
+logged_in_user = None  # 用于跟踪当前登录的用户
+
+@sio.event
+def connect():
+    console.print("Connection established", style="green")
+
+@sio.event
+def disconnect():
+    console.print("Disconnected from server", style="red")
+
+@sio.event
+def response(data):
+    global logged_in_user
+    message_type = data.get('type', '')
+    if message_type == 'login_success':
+        logged_in_user = data['username']
+    elif message_type == 'logout_success':
+        logged_in_user = None
+    console.print(f"[bold yellow]{data['message']}[/]")
+
+@sio.event
+def new_message(data):
+    console.print(f"New message from [bold magenta]{data['sender']}[/]: {data['message']}")
 
 def main_menu():
+    while True:
+        table = Table(title="Chat Application Main Menu", show_header=True, header_style="bold magenta")
+        table.add_column("Option", style="dim", width=12)
+        table.add_column("Description")
+        table.add_row("1", "Login")
+        table.add_row("2", "Register")
+        if logged_in_user:
+            table.add_row("3", "Send Message")
+            table.add_row("4", "Logout")
+        table.add_row("5", "Exit")
+        console.print(table)
 
-    table = Table(title="Chat Application Main Menu", show_header=True, header_style="bold magenta")
-    table.add_column("Option", style="dim", width=12)
-    table.add_column("Description")
-    table.add_row("1", "Login")
-    table.add_row("2", "Register")
-    table.add_row("3", "Exit")
-    console.print(table)
+        options = ["1", "2", "5"] if not logged_in_user else ["1", "2", "3", "4", "5"]
+        choice = Prompt.ask("Choose an option", choices=options)
+        if choice == "1":
+            login()
+        elif choice == "2":
+            register()
+        elif choice == "3" and logged_in_user:
+            send_message()
+        elif choice == "4" and logged_in_user:
+            logout()
+        elif choice == "5":
+            console.print("[bold cyan]Thank you for using the chat application. Goodbye![/]")
+            break
 
-    choice = Prompt.ask("Choose an option", choices=["1", "2", "3"])
-    return choice
-
-def register(chat_client):
+def register():
     username = Prompt.ask("Enter your desired username")
     password = Prompt.ask("Enter your password", password=True)
-    response = chat_client.register(username, password)
-    if response and response.get('success', False):
-        console.print("[green]Registration successful![/]")
-    else:
-        console.print(f"[red]Registration failed: {response.get('message', 'Unknown error')}[/]")
+    sio.emit('register', {'username': username, 'password': password})
 
-def login(chat_client):
-    """ 处理用户登录 """
+def login():
     username = Prompt.ask("Enter your username")
     password = Prompt.ask("Enter your password", password=True)
-    if chat_client.login(username, password):
-        console.print("[green]Logged in successfully![/]")
-        return username
-    else:
-        console.print("[red]Login failed. Please check your username and password.[/]")
-        return None
+    sio.emit('login', {'username': username, 'password': password})
+
+def logout():
+    global logged_in_user
+    sio.emit('logout', {'username': logged_in_user})
+    logged_in_user = None
+    console.print("[bold magenta]Logged out successfully![/]")
+
+def send_message():
+    if not logged_in_user:
+        console.print("Please log in to send messages.", style="red")
+        return
+    recipient = Prompt.ask("Enter recipient username")
+    message = Prompt.ask(f"[bold magenta]{logged_in_user}[/]: ")
+    sio.emit('send_message', {'sender': logged_in_user, 'recipient': recipient, 'message': message})
 
 def start_client():
-    chat_client = ChatClient()
-    if chat_client.connect_to_server():  # Only proceed if the connection is successful
-        while True:
-            choice = main_menu()
-            if choice == "1":
-                user = login(chat_client)
-                if user:
-                    user_interaction(chat_client, user)
-            elif choice == "2":
-                register(chat_client)
-            elif choice == "3":
-                console.print("[bold cyan]Thank you for using the chat application. Goodbye![/]")
-                break
-    else:
-        console.print("[red]Failed to connect to the server. Please check the server status or your network connection and try again.[/]")
-
-def receive_messages(chat_client):
-    """ Continuously receive messages from the server and display them """
-    while chat_client.is_connected:
-        message = chat_client.receive_messages()
-        if message:
-            console.print(f"\n[blue]{message}[/]")
-
-def user_interaction(chat_client, username):
-    """ Handles user inputs and actions after logging in """
-    console.print("[green]You can start chatting now! Type 'logout' to exit.[/]")
-    Thread(target=lambda: receive_messages(chat_client), daemon=True).start()
-    while True:
-        message = Prompt.ask(f"[bold magenta]{username}[/]: ")
-        if message.lower() == 'logout':
-            chat_client.logout()
-            console.print("[yellow]You have logged out.[/]")
-            break
-        chat_client.send_message(message)
+    sio.connect('http://localhost:5000')
+    try:
+        main_menu()
+    finally:
+        sio.disconnect()
 
 if __name__ == "__main__":
     start_client()
