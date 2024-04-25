@@ -114,8 +114,8 @@ def send_to_room():
     messages.insert_one({'room_id': room['_id'], 'user_id': user['_id'], 'text': message_text})
     return jsonify({'message': 'Message sent successfully'}), 201
 
-@app.route('/get_messages', methods=['GET'])
-def get_messages():
+@app.route('/get_room_messages', methods=['GET'])
+def get_room_messages():
     token = request.headers.get('Authorization')
     if not token:
         return jsonify({'error': 'No authorization token provided'}), 401
@@ -125,7 +125,7 @@ def get_messages():
         return jsonify({'error': 'Invalid or expired token'}), 403
 
     room_name = request.args.get('room_name')
-    print(room_name)
+
     if not room_name:
         return jsonify({'error': 'Room name not provided'}), 400
 
@@ -141,10 +141,13 @@ def get_messages():
     message_list = messages.find({'room_id': room['_id']})
     response_data = []
     for message in message_list:
+        message_user = users.find_one({'_id': ObjectId(message['user_id'])})
+        print(message_user)
+        message_username = message_user['username'] if message_user else 'Unknown User'
         message_data = {
-            'user_id': str(message['user_id']),  # 将ObjectId转换为字符串
+            'username': message_username,
             'text': message['text'],
-            'created_at': message.get('created_at', '')  # 假设有时间戳字段
+            'created_at': message.get('created_at', '')
         }
         response_data.append(message_data)
 

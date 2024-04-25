@@ -114,6 +114,7 @@ def view_room_messages():
     response = requests.get(f'http://localhost:5001/get_room_messages', params={'room_name': room_name}, headers=headers)
     if response.status_code == 200:
         messages = response.json()
+        print(messages)
         for message in messages:
             sender_username = message.get('username', 'Unknown') 
             text = message.get('text', '')
