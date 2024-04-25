@@ -29,28 +29,38 @@ def register():
     new_username = Prompt.ask("Enter username")
     password = Prompt.ask("Enter password", password=True)
     response = requests.post('http://localhost:5000/register', json={'username': new_username, 'password': password})
-    console.print(response.json())
+    
+    try:
+        console.print(response.json())
+    except requests.exceptions.JSONDecodeError as e:
+        console.print(f"[bold red]Error: Failed to decode JSON response.[/bold red]")
+        console.print(f"[bold red]Status Code: {response.status_code}[/bold red]")
+        console.print(f"[bold red]Response Text: {response.text}[/bold red]")
+        console.print(f"[bold red]Error Message: {str(e)}[/bold red]")
 
 def login():
-    global username
+    global username, token
     console.print("\n[bold green]Login[/bold green]")
     login_username = Prompt.ask("Enter username")
     password = Prompt.ask("Enter password", password=True)
     response = requests.post('http://localhost:5000/login', json={'username': login_username, 'password': password})
     if response.status_code == 200:
         console.print("[bold green]Login successful![/bold green]")
+        data = response.json()
         username = login_username
+        token = data['token']  # 存储JWT令牌
     else:
         console.print("[bold red]Failed to login.[/bold red]")
 
 def create_room():
-    global room_name
+    global room_name, token
     if not username:
         console.print("\n[bold red]Please log in first.[/bold red]")
         return
     console.print("\n[bold green]Create a new chat room[/bold green]")
     new_room_name = Prompt.ask("Enter room name")
-    response = requests.post('http://localhost:5001/create_room', json={'room_name': new_room_name, 'username': username})
+    headers = {'Authorization': f'Bearer {token}'}  # 在请求头中包含JWT令牌
+    response = requests.post('http://localhost:5001/create_room', json={'room_name': new_room_name, 'username': username}, headers=headers)
     if response.status_code == 201:
         console.print(response.json())
         room_name = new_room_name
@@ -59,13 +69,14 @@ def create_room():
         console.print("[bold red]Response text:[/bold red]", response.text)
 
 def join_room():
-    global room_name
+    global room_name, token
     if not username:
         console.print("\n[bold red]Please log in first.[/bold red]")
         return
     console.print("\n[bold green]Join a chat room[/bold green]")
     join_room_name = Prompt.ask("Enter room name")
-    response = requests.post('http://localhost:5001/join_room', json={'room_name': join_room_name, 'username': username})
+    headers = {'Authorization': f'Bearer {token}'}  # 在请求头中包含JWT令牌
+    response = requests.post('http://localhost:5001/join_room', json={'room_name': join_room_name, 'username': username}, headers=headers)
     if response.status_code == 200:
         console.print(response.json())
         room_name = join_room_name
@@ -84,7 +95,8 @@ def send_to_room():
 
     console.print("\n[bold green]Enter your message:[/bold green]")
     message = Prompt.ask()
-    response = requests.post('http://localhost:5001/send_to_room', json={'room_name': room_name, 'username': username, 'text': message})
+    headers = {'Authorization': f'Bearer {token}'}
+    response = requests.post('http://localhost:5001/send_to_room', json={'room_name': room_name, 'username': username, 'text': message}, headers=headers)
 
     if response.status_code == 200:
         console.print(response.json())
@@ -98,7 +110,8 @@ def view_room_messages():
     if not room_name:
         console.print("\n[bold red]Please join a room first.[/bold red]")
         return
-    response = requests.get(f'http://localhost:5001/get_room_messages', params={'room_name': room_name})
+    headers = {'Authorization': f'Bearer {token}'}
+    response = requests.get(f'http://localhost:5001/get_room_messages', params={'room_name': room_name}, headers=headers)
     if response.status_code == 200:
         messages = response.json()
         for message in messages:

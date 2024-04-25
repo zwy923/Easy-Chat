@@ -9,127 +9,173 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 app.config['SECRET_KEY'] = 'your-secret-key'
 
 client = MongoClient('localhost', 27017)
-db = client.chat_service
+db = client.user_service
 chatrooms = db.chatrooms
 messages = db.messages
 users = db.users
 
+def get_user_by_username(username):
+    user = users.find_one({'username': username})
+    return user
+
 def authenticate(token):
+    if token.startswith("Bearer "):
+        token = token[7:]  # 去掉"Bearer"前缀
+    
     try:
-        payload = jwt.decode(token, app.config['SECRET_KEY'])
-        return payload['user_id']
+        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        user_id = payload['user_id']
+        user = users.find_one({'_id': ObjectId(user_id)})
+        if user:
+            return user['username']
+        else:
+            return None
     except jwt.ExpiredSignatureError:
         return None
     except jwt.InvalidTokenError:
         return None
-
+    
 @app.route('/create_room', methods=['POST'])
 def create_room():
     token = request.headers.get('Authorization')
-    user_id = authenticate(token)
-    if not user_id:
+    username = authenticate(token)
+    
+    if not username:
         return jsonify({'error': 'Unauthorized'}), 401
     
-    room_name = request.json['room_name']
-    room_type = request.json.get('room_type', 'public')
+    user = get_user_by_username(username)
     
-    if room_type not in ['public', 'private']:
-        return jsonify({'error': 'Invalid room type'}), 400
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
     
-    room_id = chatrooms.insert_one({'room_name': room_name, 'room_type': room_type, 'members': [ObjectId(user_id)]}).inserted_id
-    return jsonify({'room_id': str(room_id)}), 201
+    data = request.get_json()
+    room_name = data['room_name']
+    room_type = data.get('room_type', 'public')
+    
+    room_id = chatrooms.insert_one({'room_name': room_name, 'room_type': room_type, 'members': [user['_id']]}).inserted_id
+    
+    return jsonify({'room_id': str(room_id), 'room_name': room_name, 'room_type': room_type}), 201
 
 @app.route('/join_room', methods=['POST'])
 def join_room():
     token = request.headers.get('Authorization')
-    user_id = authenticate(token)
-    if not user_id:
+    username = authenticate(token)
+    if not username:
         return jsonify({'error': 'Unauthorized'}), 401
     
-    room_id = request.json['room_id']
-    room = chatrooms.find_one({'_id': ObjectId(room_id)})
+    user = get_user_by_username(username)
+    if not token:
+        return jsonify({'error': 'No authorization token provided'}), 401
     
+    username = authenticate(token)
+    if not username:
+        return jsonify({'error': 'Invalid or expired token'}), 403
+    
+    room_name = request.json.get('room_name')
+    if not room_name:
+        return jsonify({'error': 'Room name not provided'}), 400
+    
+    room = chatrooms.find_one({'room_name': room_name})
     if not room:
         return jsonify({'error': 'Room not found'}), 404
     
-    if room['room_type'] == 'private' and ObjectId(user_id) not in room['members']:
-        return jsonify({'error': 'Not allowed to join private room'}), 403
-    
-    chatrooms.update_one({'_id': ObjectId(room_id)}, {'$addToSet': {'members': ObjectId(user_id)}})
-    return jsonify({'message': 'Joined room successfully'}), 200
 
-@app.route('/send_message', methods=['POST'])
-def send_message():
+    if ObjectId(user['_id']) not in room['members']:
+        room['members'].append(ObjectId(user['_id']))
+        chatrooms.update_one({'_id': room['_id']}, {'$set': {'members': room['members']}})
+    
+    return jsonify({'message': 'Joined room successfully', 'room_id': str(room['_id'])}), 200
+
+
+@app.route('/send_to_room', methods=['POST'])
+def send_to_room():
     token = request.headers.get('Authorization')
-    user_id = authenticate(token)
-    if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
-    
-    room_id = request.json['room_id']
-    text = request.json['text']
-    room = chatrooms.find_one({'_id': ObjectId(room_id)})
-    
+    if not token:
+        return jsonify({'error': 'No authorization token provided'}), 401
+
+    username = authenticate(token)
+    if not username:
+        return jsonify({'error': 'Invalid or expired token'}), 403
+
+    room_name = request.json.get('room_name')
+    message_text = request.json.get('text')
+    if not room_name or not message_text:
+        return jsonify({'error': 'Room name or message not provided'}), 400
+
+    room = chatrooms.find_one({'room_name': room_name})
     if not room:
         return jsonify({'error': 'Room not found'}), 404
-    
-    if ObjectId(user_id) not in room['members']:
-        return jsonify({'error': 'Not a member of the room'}), 403
-    
-    messages.insert_one({'room_id': ObjectId(room_id), 'user_id': ObjectId(user_id), 'text': text})
-    return jsonify({'message': 'Message sent'}), 200
+
+    # Assume user must be in the room to send a message
+    user = users.find_one({'username': username})
+    if ObjectId(user['_id']) not in room['members']:
+        return jsonify({'error': 'User is not a member of the room'}), 403
+
+    messages.insert_one({'room_id': room['_id'], 'user_id': user['_id'], 'text': message_text})
+    return jsonify({'message': 'Message sent successfully'}), 201
 
 @app.route('/get_messages', methods=['GET'])
 def get_messages():
     token = request.headers.get('Authorization')
-    user_id = authenticate(token)
-    if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
-    
-    room_id = request.args.get('room_id')
-    room = chatrooms.find_one({'_id': ObjectId(room_id)})
-    
+    if not token:
+        return jsonify({'error': 'No authorization token provided'}), 401
+
+    username = authenticate(token)
+    if not username:
+        return jsonify({'error': 'Invalid or expired token'}), 403
+
+    room_name = request.args.get('room_name')
+    print(room_name)
+    if not room_name:
+        return jsonify({'error': 'Room name not provided'}), 400
+
+    room = chatrooms.find_one({'room_name': room_name})
     if not room:
         return jsonify({'error': 'Room not found'}), 404
-    
-    if ObjectId(user_id) not in room['members']:
-        return jsonify({'error': 'Not a member of the room'}), 403
-    
-    pipeline = [
-        {'$match': {'room_id': ObjectId(room_id)}},
-        {'$lookup': {
-            'from': 'users',
-            'localField': 'user_id',
-            'foreignField': '_id',
-            'as': 'user'
-        }},
-        {'$unwind': '$user'},
-        {'$project': {
-            '_id': 0,
-            'text': 1,
-            'username': '$user.username',
-            'created_at': {'$toDate': '$_id'}
-        }},
-        {'$sort': {'created_at': 1}}
-    ]
-    
-    messages_list = list(messages.aggregate(pipeline))
-    return jsonify(messages_list), 200
+
+    user = users.find_one({'username': username})
+    if ObjectId(user['_id']) not in room['members']:
+        return jsonify({'error': 'User is not a member of the room'}), 403
+
+    # 获取消息列表并转换为可以序列化的格式
+    message_list = messages.find({'room_id': room['_id']})
+    response_data = []
+    for message in message_list:
+        message_data = {
+            'user_id': str(message['user_id']),  # 将ObjectId转换为字符串
+            'text': message['text'],
+            'created_at': message.get('created_at', '')  # 假设有时间戳字段
+        }
+        response_data.append(message_data)
+
+    return jsonify(response_data), 200
 
 @app.route('/leave_room', methods=['POST'])
 def leave_room():
     token = request.headers.get('Authorization')
-    user_id = authenticate(token)
-    if not user_id:
-        return jsonify({'error': 'Unauthorized'}), 401
-    
-    room_id = request.json['room_id']
-    room = chatrooms.find_one({'_id': ObjectId(room_id)})
-    
+    if not token:
+        return jsonify({'error': 'No authorization token provided'}), 401
+
+    username = authenticate(token)
+    if not username:
+        return jsonify({'error': 'Invalid or expired token'}), 403
+
+    room_name = request.json.get('room_name')
+    if not room_name:
+        return jsonify({'error': 'Room name not provided'}), 400
+
+    room = chatrooms.find_one({'room_name': room_name})
     if not room:
         return jsonify({'error': 'Room not found'}), 404
-    
-    chatrooms.update_one({'_id': ObjectId(room_id)}, {'$pull': {'members': ObjectId(user_id)}})
+
+    user = users.find_one({'username': username})
+    if ObjectId(user['_id']) not in room['members']:
+        return jsonify({'error': 'User is not a member of the room'}), 403
+
+    # Remove user from room's member list
+    chatrooms.update_one({'_id': room['_id']}, {'$pull': {'members': ObjectId(user['_id'])}})
     return jsonify({'message': 'Left room successfully'}), 200
+
 
 if __name__ == '__main__':
     app.run(port=5001)
